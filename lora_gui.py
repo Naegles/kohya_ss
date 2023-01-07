@@ -24,6 +24,7 @@ from library.dreambooth_folder_creation_gui import (
 )
 from library.dataset_balancing_gui import gradio_dataset_balancing_tab
 from library.utilities import utilities_tab
+from library.merge_lora_gui import gradio_merge_lora_tab
 from easygui import msgbox
 
 folder_symbol = '\U0001f4c2'  # 📂
@@ -425,13 +426,13 @@ def train_model(
     if flip_aug:
         run_cmd += ' --flip_aug'
     run_cmd += (
-        f' --pretrained_model_name_or_path={pretrained_model_name_or_path}'
+        f' --pretrained_model_name_or_path="{pretrained_model_name_or_path}"'
     )
     run_cmd += f' --train_data_dir="{train_data_dir}"'
     if len(reg_data_dir):
         run_cmd += f' --reg_data_dir="{reg_data_dir}"'
     run_cmd += f' --resolution={max_resolution}'
-    run_cmd += f' --output_dir={output_dir}'
+    run_cmd += f' --output_dir="{output_dir}"'
     run_cmd += f' --train_batch_size={train_batch_size}'
     # run_cmd += f' --learning_rate={learning_rate}'
     run_cmd += f' --lr_scheduler={lr_scheduler}'
@@ -443,7 +444,7 @@ def train_model(
     run_cmd += f' --save_every_n_epochs={save_every_n_epochs}'
     run_cmd += f' --seed={seed}'
     run_cmd += f' --save_precision={save_precision}'
-    run_cmd += f' --logging_dir={logging_dir}'
+    run_cmd += f' --logging_dir="{logging_dir}"'
     if not caption_extension == '':
         run_cmd += f' --caption_extension={caption_extension}'
     if not stop_text_encoder_training == 0:
@@ -453,7 +454,7 @@ def train_model(
     if not save_model_as == 'same as source model':
         run_cmd += f' --save_model_as={save_model_as}'
     if not resume == '':
-        run_cmd += f' --resume={resume}'
+        run_cmd += f' --resume="{resume}"'
     if not float(prior_loss_weight) == 1.0:
         run_cmd += f' --prior_loss_weight={prior_loss_weight}'
     run_cmd += f' --network_module=networks.lora'
@@ -471,9 +472,9 @@ def train_model(
     #     run_cmd += f' --network_train_unet_only'
     run_cmd += f' --network_dim={network_dim}'
     if not lora_network_weights == '':
-        run_cmd += f' --network_weights={lora_network_weights}'
+        run_cmd += f' --network_weights="{lora_network_weights}"'
     if int(clip_skip) > 1:
-        run_cmd += f' --clip_skip={int(clip_skip)}'
+        run_cmd += f' --clip_skip={str(clip_skip)}'
 
     print(run_cmd)
     # Run the command
@@ -755,33 +756,23 @@ def lora_tab(
                     'linear',
                     'polynomial',
                 ],
-                value='constant',
+                value='cosine',
             )
-            lr_warmup_input = gr.Textbox(label='LR warmup', value=0)
+            lr_warmup_input = gr.Textbox(label='LR warmup (% of steps)', value=10)
         with gr.Row():
             text_encoder_lr = gr.Textbox(
                 label='Text Encoder learning rate',
-                value=1e-6,
+                value="5e-5",
                 placeholder='Optional',
             )
             unet_lr = gr.Textbox(
-                label='Unet learning rate', value=1e-4, placeholder='Optional'
+                label='Unet learning rate', value="1e-3", placeholder='Optional'
             )
-            # network_train = gr.Dropdown(
-            #     label='Network to train',
-            #     choices=[
-            #         'Text encoder and Unet',
-            #         'Text encoder only',
-            #         'Unet only',
-            #     ],
-            #     value='Text encoder and Unet',
-            #     interactive=True
-            # )
             network_dim = gr.Slider(
                 minimum=1,
-                maximum=32,
+                maximum=128,
                 label='Network Dimension',
-                value=4,
+                value=8,
                 step=1,
                 interactive=True,
             )
@@ -904,6 +895,7 @@ def lora_tab(
             logging_dir_input=logging_dir_input,
         )
         gradio_dataset_balancing_tab()
+        gradio_merge_lora_tab()
 
     button_run = gr.Button('Train model')
 
