@@ -715,7 +715,10 @@ def debug_dataset(train_dataset):
 def glob_images(dir, base):
   img_paths = []
   for ext in IMAGE_EXTENSIONS:
-    img_paths.extend(glob.glob(os.path.join(dir, base + ext)))
+    if base == '*':
+      img_paths.extend(glob.glob(os.path.join(glob.escape(dir), base + ext)))
+    else:
+      img_paths.extend(glob.glob(glob.escape(os.path.join(dir, base + ext))))
   return img_paths
 
 # endregion
@@ -743,6 +746,20 @@ def exists(val):
 
 def default(val, d):
   return val if exists(val) else d
+
+
+def model_hash(filename):
+  try:
+    with open(filename, "rb") as file:
+      import hashlib
+      m = hashlib.sha256()
+
+      file.seek(0x100000)
+      m.update(file.read(0x10000))
+      return m.hexdigest()[0:8]
+  except FileNotFoundError:
+    return 'NOFILE'
+
 
 # flash attention forwards and backwards
 
@@ -1012,6 +1029,7 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
   parser.add_argument("--save_every_n_epochs", type=int, default=None,
                       help="save checkpoint every N epochs / 学習中のモデルを指定エポックごとに保存する")
   parser.add_argument("--save_last_n_epochs", type=int, default=None, help="save last N checkpoints / 最大Nエポック保存する")
+  parser.add_argument("--save_last_n_epochs_state", type=int, default=None, help="save last N checkpoints of state (overrides the value of --save_last_n_epochs)/ 最大Nエポックstateを保存する(--save_last_n_epochsの指定を上書きします)")
   parser.add_argument("--save_state", action="store_true",
                       help="save training state additionally (including optimizer states etc.) / optimizerなど学習状態も含めたstateを追加で保存する")
   parser.add_argument("--resume", type=str, default=None, help="saved state to resume training / 学習再開するモデルのstate")
@@ -1030,6 +1048,8 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
 
   parser.add_argument("--learning_rate", type=float, default=2.0e-6, help="learning rate / 学習率")
   parser.add_argument("--max_train_steps", type=int, default=1600, help="training steps / 学習ステップ数")
+  parser.add_argument("--max_train_epochs", type=int, default=None, help="training epochs (overrides max_train_steps) / 学習エポック数（max_train_stepsを上書きします）")
+  parser.add_argument("--max_data_loader_n_workers", type=int, default=8, help="max num workers for DataLoader (lower is less main RAM usage, faster epoch start and slower data loading) / DataLoaderの最大プロセス数（小さい値ではメインメモリの使用量が減りエポック間の待ち時間が減りますが、データ読み込みは遅くなります）")
   parser.add_argument("--seed", type=int, default=None, help="random seed for training / 学習時の乱数のseed")
   parser.add_argument("--gradient_checkpointing", action="store_true",
                       help="enable gradient checkpointing / grandient checkpointingを有効にする")
@@ -1279,7 +1299,6 @@ def get_epoch_ckpt_name(args: argparse.Namespace, use_safetensors, epoch):
 
 def save_on_epoch_end(args: argparse.Namespace, save_func, remove_old_func, epoch_no: int, num_train_epochs: int):
   saving = epoch_no % args.save_every_n_epochs == 0 and epoch_no < num_train_epochs
-  remove_epoch_no = None
   if saving:
     os.makedirs(args.output_dir, exist_ok=True)
     save_func()
@@ -1287,7 +1306,7 @@ def save_on_epoch_end(args: argparse.Namespace, save_func, remove_old_func, epoc
     if args.save_last_n_epochs is not None:
       remove_epoch_no = epoch_no - args.save_every_n_epochs * args.save_last_n_epochs
       remove_old_func(remove_epoch_no)
-  return saving, remove_epoch_no
+  return saving
 
 
 def save_sd_model_on_epoch_end(args: argparse.Namespace, accelerator, src_path: str, save_stable_diffusion_format: bool, use_safetensors: bool, save_dtype: torch.dtype, epoch: int, num_train_epochs: int, global_step: int, text_encoder, unet, vae):
@@ -1327,15 +1346,18 @@ def save_sd_model_on_epoch_end(args: argparse.Namespace, accelerator, src_path: 
     save_func = save_du
     remove_old_func = remove_du
 
-  saving, remove_epoch_no = save_on_epoch_end(args, save_func, remove_old_func, epoch_no, num_train_epochs)
+  saving = save_on_epoch_end(args, save_func, remove_old_func, epoch_no, num_train_epochs)
   if saving and args.save_state:
-    save_state_on_epoch_end(args, accelerator, model_name, epoch_no, remove_epoch_no)
+    save_state_on_epoch_end(args, accelerator, model_name, epoch_no)
 
 
-def save_state_on_epoch_end(args: argparse.Namespace, accelerator, model_name, epoch_no, remove_epoch_no):
+def save_state_on_epoch_end(args: argparse.Namespace, accelerator, model_name, epoch_no):
   print("saving state.")
   accelerator.save_state(os.path.join(args.output_dir, EPOCH_STATE_NAME.format(model_name, epoch_no)))
-  if remove_epoch_no is not None:
+
+  last_n_epochs = args.save_last_n_epochs_state if args.save_last_n_epochs_state else args.save_last_n_epochs
+  if last_n_epochs is not None:
+    remove_epoch_no = epoch_no - args.save_every_n_epochs * last_n_epochs
     state_dir_old = os.path.join(args.output_dir, EPOCH_STATE_NAME.format(model_name, remove_epoch_no))
     if os.path.exists(state_dir_old):
       print(f"removing old state: {state_dir_old}")
