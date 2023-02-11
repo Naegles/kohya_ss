@@ -143,13 +143,15 @@ def train(args):
     print("Use DreamBooth method.")
     train_dataset = DreamBoothDataset(args.train_batch_size, args.train_data_dir, args.reg_data_dir,
                                       tokenizer, args.max_token_length, args.caption_extension, args.shuffle_caption, args.keep_tokens,
-                                      args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso, args.prior_loss_weight,
-                                      args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop, args.debug_dataset)
+                                      args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                      args.bucket_reso_steps, args.bucket_no_upscale,
+                                      args.prior_loss_weight, args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop, args.debug_dataset)
   else:
     print("Train with captions.")
     train_dataset = FineTuningDataset(args.in_json, args.train_batch_size, args.train_data_dir,
                                       tokenizer, args.max_token_length, args.shuffle_caption, args.keep_tokens,
                                       args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                      args.bucket_reso_steps, args.bucket_no_upscale,
                                       args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop,
                                       args.dataset_repeats, args.debug_dataset)
 
@@ -217,7 +219,7 @@ def train(args):
   # DataLoaderのプロセス数：0はメインプロセスになる
   n_workers = min(args.max_data_loader_n_workers, os.cpu_count() - 1)      # cpu_count-1 ただし最大で指定された数まで
   train_dataloader = torch.utils.data.DataLoader(
-      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers)
+      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers, persistent_workers=args.persistent_data_loader_workers)
 
   # 学習ステップ数を計算する
   if args.max_train_epochs is not None:
@@ -233,7 +235,7 @@ def train(args):
       text_encoder, optimizer, train_dataloader, lr_scheduler)
 
   index_no_updates = torch.arange(len(tokenizer)) < token_ids[0]
-  print(len(index_no_updates), torch.sum(index_no_updates))
+  # print(len(index_no_updates), torch.sum(index_no_updates))
   orig_embeds_params = unwrap_model(text_encoder).get_input_embeddings().weight.data.detach().clone()
 
   # Freeze all parameters except for the token embeddings in text encoder
@@ -294,6 +296,7 @@ def train(args):
 
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
+    train_dataset.set_current_epoch(epoch + 1)
 
     text_encoder.train()
 
@@ -312,7 +315,8 @@ def train(args):
 
         # Get the text embedding for conditioning
         input_ids = batch["input_ids"].to(accelerator.device)
-        encoder_hidden_states = train_util.get_hidden_states(args, input_ids, tokenizer, text_encoder, torch.float) # weight_dtype) use float instead of fp16/bf16 because text encoder is float
+        # weight_dtype) use float instead of fp16/bf16 because text encoder is float
+        encoder_hidden_states = train_util.get_hidden_states(args, input_ids, tokenizer, text_encoder, torch.float)
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
@@ -380,8 +384,8 @@ def train(args):
     accelerator.wait_for_everyone()
 
     updated_embs = unwrap_model(text_encoder).get_input_embeddings().weight[token_ids].data.detach().clone()
-    d = updated_embs - bef_epo_embs
-    print(bef_epo_embs.size(), updated_embs.size(), d.mean(), d.min())
+    # d = updated_embs - bef_epo_embs
+    # print(bef_epo_embs.size(), updated_embs.size(), d.mean(), d.min())
 
     if args.save_every_n_epochs is not None:
       model_name = train_util.DEFAULT_EPOCH_NAME if args.output_name is None else args.output_name
@@ -475,7 +479,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
 
   train_util.add_sd_models_arguments(parser)
-  train_util.add_dataset_arguments(parser, True, True)
+  train_util.add_dataset_arguments(parser, True, True, False)
   train_util.add_training_arguments(parser, True)
 
   parser.add_argument("--save_model_as", type=str, default="pt", choices=[None, "ckpt", "pt", "safetensors"],

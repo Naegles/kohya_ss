@@ -78,8 +78,13 @@ def save_configuration(
     color_aug,
     model_list,
     cache_latents,
-    use_latent_files, keep_tokens,
+    use_latent_files,
+    keep_tokens,
     persistent_data_loader_workers,
+    bucket_no_upscale,
+    random_crop,
+    bucket_reso_steps,
+    caption_dropout_every_n_epochs, caption_dropout_rate,
 ):
     # Get list of function parameters and values
     parameters = list(locals().items())
@@ -169,8 +174,13 @@ def open_config_file(
     color_aug,
     model_list,
     cache_latents,
-    use_latent_files, keep_tokens,
+    use_latent_files,
+    keep_tokens,
     persistent_data_loader_workers,
+    bucket_no_upscale,
+    random_crop,
+    bucket_reso_steps,
+    caption_dropout_every_n_epochs, caption_dropout_rate,
 ):
     # Get list of function parameters and values
     parameters = list(locals().items())
@@ -245,8 +255,13 @@ def train_model(
     color_aug,
     model_list,  # Keep this. Yes, it is unused here but required given the common list used
     cache_latents,
-    use_latent_files, keep_tokens,
+    use_latent_files,
+    keep_tokens,
     persistent_data_loader_workers,
+    bucket_no_upscale,
+    random_crop,
+    bucket_reso_steps,
+    caption_dropout_every_n_epochs, caption_dropout_rate,
 ):
     # create caption json file
     if generate_caption_database:
@@ -295,7 +310,11 @@ def train_model(
         subprocess.run(run_cmd)
 
     image_num = len(
-        [f for f in os.listdir(image_folder) if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.webp')]
+        [
+            f
+            for f in os.listdir(image_folder)
+            if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.webp')
+        ]
     )
     print(f'image_num = {image_num}')
 
@@ -386,6 +405,11 @@ def train_model(
         use_8bit_adam=use_8bit_adam,
         keep_tokens=keep_tokens,
         persistent_data_loader_workers=persistent_data_loader_workers,
+        bucket_no_upscale=bucket_no_upscale,
+        random_crop=random_crop,
+        bucket_reso_steps=bucket_reso_steps,
+        caption_dropout_every_n_epochs=caption_dropout_every_n_epochs,
+        caption_dropout_rate=caption_dropout_rate,
     )
 
     print(run_cmd)
@@ -592,6 +616,10 @@ def finetune_tab():
                 max_data_loader_n_workers,
                 keep_tokens,
                 persistent_data_loader_workers,
+                bucket_no_upscale,
+                random_crop,
+                bucket_reso_steps,
+                caption_dropout_every_n_epochs, caption_dropout_rate,
             ) = gradio_advanced_training()
             color_aug.change(
                 color_aug_changed,
@@ -653,6 +681,10 @@ def finetune_tab():
         use_latent_files,
         keep_tokens,
         persistent_data_loader_workers,
+        bucket_no_upscale,
+        random_crop,
+        bucket_reso_steps,
+        caption_dropout_every_n_epochs, caption_dropout_rate,
     ]
 
     button_run.click(train_model, inputs=settings_list)
